@@ -3,7 +3,10 @@ import os
 import pathlib
 import socket
 
-from dataclasses import dataclass
+from file import File
+# from server import custom_bytes_header
+from server import custom_bytes_header, parse_mmp_packet
+
 from typing import TypedDict
 
 class Client:
@@ -19,7 +22,7 @@ class Client:
             'process_type': 1,
             # 'resolution_code': 1,
             # 'aspect_ratio_code': 1,
-            # 'time_range': (2,2)
+            # 'time_range': (2,2, GIF)
         }
         
 
@@ -57,7 +60,7 @@ class Client:
         self.set_file_args(process_type=process_type)
         print(f"self.file_args: {self.file_args}")
 
-        # Headerの作成
+        # headerの作成
         header_filepath = input("Type in the file name or the header file(.json file) path: ")
         with open(header_filepath, 'w') as f:
             json.dump(self.file_args, f)
@@ -70,11 +73,12 @@ class Client:
         media_typesize = len(media_type_bytes)
         print(f'media_type: {media_type}')
 
-        header = self.custom_bytes_header(jsonfile_size=header_filesize, mediatype_size=media_typesize, payload_size=payload_size)
-        print(f'Header: {header}')
+        header = custom_bytes_header(jsonfile_size=header_filesize, mediatype_size=media_typesize, payload_size=payload_size)
+        print(f'header: {header}')
         # hex_string = header.hex()
         # print(f'hex_string:{hex_string}')
-
+        
+        # bodyの作成
         with open(header_filepath, 'rb') as header_f, open(target_filepath, 'rb') as target_f:
             header_file_bytes = bytearray(header_f.read())
             print(f'header_file_bytes:{header_file_bytes}')
@@ -84,13 +88,36 @@ class Client:
         # ファイル送信(リクエスト送信)
         body = header_file_bytes + media_type_bytes + payload_bytes
         self.upload_file(header+body)
-        
-        # データ受信
-        print('waiting to receive data from server')
-        recv_data = self.socket.recv(Client.PACKET_SIZE)
-        print('\n received username {!r}'.format(recv_data))
 
-        return
+
+        # データ受信
+        try:
+            recv_data = bytearray()
+            while True:
+                print('waiting to receive data from server...')
+                packet = self.socket.recv(Client.PACKET_SIZE)
+                print(f'packet: {packet}')
+                print(f'len(packet): {len(packet)}')
+                # ref:https://stackoverflow.com/questions/17667903/python-socket-receive-large-amount-of-data
+                if len(packet) < Client.PACKET_SIZE:
+                    recv_data.extend(packet)
+                    break
+                recv_data.extend(packet)
+        except Exception as e:
+            print(f"Error occurred: {e}")
+        else:
+            print('\n received data: {!r}'.format(recv_data))
+
+            # 受信したデータの解析
+            recv_header_file, recv_media_type, recv_payload = parse_mmp_packet(recv_data)
+            # print(f'recv_header_file:{recv_header_file}')
+            # print(f'recv_media_type:{recv_media_type}')
+
+            # 受信したファイルをClient側で保存
+            with open('processed_file' + recv_media_type, 'wb') as f:
+                f.write(recv_payload)
+
+        return 
 
     def upload_file(self, data):
         print('uploading to server...')
@@ -126,11 +153,10 @@ class Client:
         2: 解像度2\n \
         3: 解像度3\n'
         text_for_aspect_ratio = '所望のアスペクト比を選択してください:\n \
-        1: アスペクト比1\n \
-        2: アスペクト比2\n \
-        3: アスペクト比3\n'
+        1: 16:9\n \
+        2: 4:3\n'
         #ToDo:time_rangeの入力形式
-        text_for_time_range = '何秒時点から何秒間動画を切り取るか、所望の時間範囲(開始時間と動画時間)をカンマ区切りで指定してください'
+        text_for_time_range = '何秒時点から何秒間動画を切り取るか、所望の時間範囲(開始時間と動画時間)と出力形式(GIF,WEBM)をカンマ区切りで指定してください\n'
         text_for_default = '追加の引数は不要です'
         while True:
             if process_type == 1 :
@@ -142,28 +168,18 @@ class Client:
                 break
             elif process_type == 3 :
                 aspect_ratio_code = input(text_for_aspect_ratio)
-                self.file_args['aspect_ratio_code'] = aspect_ratio_code
+                self.file_args['aspect_ratio_code'] = int(aspect_ratio_code)
                 break
             elif process_type == 4 :
                 print(text_for_default)
                 break
             elif process_type == 5 :
-                time_range = tuple(map(int, input(text_for_time_range).split(",")))
-                self.file_args['time_range'] = time_range
+                time_range = tuple(input(text_for_time_range).split(","))
+                self.file_args['time_range'] = (int(time_range[0]), int(time_range[1]), time_range[2])
                 break
             else:
                 print('入力を受け取ることができませんでした。')
         return
-
-    def custom_bytes_header(self, jsonfile_size: int, mediatype_size: int, payload_size: int) -> bytes:
-        jsonfile_size_bytes = jsonfile_size.to_bytes(16, byteorder='big')
-        print(f'json_size_bytes:{jsonfile_size_bytes}')
-        mediatype_size_bytes = mediatype_size.to_bytes(4, byteorder='big')
-        print(f'mediatype_size_bytes:{mediatype_size_bytes}')
-        payload_size_bytes = payload_size.to_bytes(47, byteorder='big') 
-        print(f'payload_size_bytes:{payload_size_bytes}')
-        header_bytes = jsonfile_size_bytes + mediatype_size_bytes + payload_size_bytes
-        return header_bytes
 
 class FileArgs(TypedDict, total=False):
     """
@@ -174,44 +190,6 @@ class FileArgs(TypedDict, total=False):
     resolution_code: int
     aspect_ratio_code: int
     time_range: tuple
-
-@dataclass
-class File:
-    _filepath: str = 'default'
-    _filesize: int = 1400
-    _media_type: str = '.mp3'
-
-    # def is_mp4file(self, pathname: str) -> bool:
-    #     return pathlib.Path(pathname) == '.mp4'
-    
-    def get_filepath(self):
-        return self._filepath
-    
-    def get_filesize(self):
-        return self._filesize
-    
-    def get_media_type(self):
-        return self._media_type
-
-    def set_filepath(self):
-        # while True:
-        filepath = input("Type in the file name or the file path: ")
-        # if self.is_mp4file(filepath):
-        #     print(
-        #         f'Your file: {filepath} must be .mp4 file')
-        #     continue
-        self._filepath = filepath
-        # break
-        return
-    
-    def set_filesize(self):
-        self._filesize = os.path.getsize(self.get_filepath())
-        return
-
-    def set_fileextension(self):
-        filepath_tuple = os.path.splitext(self.get_filepath())
-        self._media_type = filepath_tuple[1]
-        return
 
 def main():
     client = Client()
