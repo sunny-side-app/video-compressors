@@ -149,12 +149,12 @@ class Client:
 
     def set_file_args(self, process_type: int):
         text_for_resolution = '所望の解像度を選択してください:\n \
-        1: 解像度1\n \
-        2: 解像度2\n \
-        3: 解像度3\n'
+        1: 3840x2160 \n \
+        2: 1920x1080 \n \
+        3: 1280x720 \n'
         text_for_aspect_ratio = '所望のアスペクト比を選択してください:\n \
-        1: 16:9\n \
-        2: 4:3\n'
+        1: 16:9 \n \
+        2: 4:3 \n'
         #ToDo:time_rangeの入力形式
         text_for_time_range = '何秒時点から何秒間動画を切り取るか、所望の時間範囲(開始時間と動画時間)と出力形式(GIF,WEBM)をカンマ区切りで指定してください\n'
         text_for_default = '追加の引数は不要です'
@@ -164,7 +164,7 @@ class Client:
                 break
             elif process_type == 2 :
                 resolution_code = input(text_for_resolution)
-                self.file_args['resolution_code'] = resolution_code
+                self.file_args['resolution_code'] = int(resolution_code)
                 break
             elif process_type == 3 :
                 aspect_ratio_code = input(text_for_aspect_ratio)

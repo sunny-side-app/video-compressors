@@ -64,9 +64,13 @@ class Server:
 
             if process_type == 1:
                 print('process_type == 1')
-                processed_filepath = self.compress(input_filepath=target_filepath, process_type=process_type)
+                processed_filepath = self.compress(input_filepath=target_filepath, 
+                 process_type=process_type)
             elif process_type == 2:
                 print('process_type == 2')
+                processed_filepath = self.update_resolution(input_filepath=target_filepath, 
+                process_type=process_type, 
+                process_param=header_file_json['resolution_code'])
 
             elif process_type == 3:
                 print('process_type == 3')
@@ -75,7 +79,9 @@ class Server:
                 process_param=header_file_json['aspect_ratio_code'])
 
             elif process_type == 4:
-                pass
+                print('process_type == 4')
+                processed_filepath = self.distill_audio(input_filepath=target_filepath, 
+                 process_type=process_type)
             elif process_type == 5:
                 print('process_type == 5')
                 processed_filepath = self.cut_out(input_filepath=target_filepath, 
@@ -147,8 +153,31 @@ class Server:
 
         return output_filepath
     
-    def update_resolution(self):
-        return
+    def update_resolution(self, input_filepath: str, process_type:int, process_param:int):
+        """
+        選択された解像度に変換する
+        process_param int: 解像度(1: 3840x2160, 2: 1920x1080, 3: 1280x720)
+        """
+        output_filepath = './' + 'output_' + 'process_type=' + str(process_type) + '.mp4'
+
+        i = ffmpeg.input(input_filepath)
+        if process_param == 1:
+            ffmpeg.output(i, output_filepath,
+                          **{'s': '3840x2160'}
+                          ).overwrite_output().run()
+        elif process_param == 2:
+            ffmpeg.output(i, output_filepath,
+                          **{'s': '1920x1080'}
+                          ).overwrite_output().run()
+        elif process_param == 3:
+            ffmpeg.output(i, output_filepath,
+                          **{'s': '1280x720'}
+                          ).overwrite_output().run()
+        else:
+            pass
+
+        return output_filepath
+
 
     def update_aspect_ratio(self, input_filepath: str, process_type:int, process_param:int):
         """
@@ -171,8 +200,20 @@ class Server:
 
         return output_filepath
 
-    def distill_audio(self):
-        return
+    def distill_audio(self, input_filepath:str, process_type:int):
+        """
+        動画から音声だけを抽出したMP3を返す
+        ref:https://video.stackexchange.com/questions/17929/ffmpeg-invalid-audio-stream-exactly-one-mp3-audio-stream-is-required
+        """
+
+        output_filepath = './' + 'output_' + 'process_type=' + str(process_type) + '.mp3'
+
+        i = ffmpeg.input(input_filepath)
+        ffmpeg.output(i, output_filepath,
+                        **{'c:a': 'libmp3lame'}
+                        ).overwrite_output().run()
+
+        return output_filepath
 
     def cut_out(self, input_filepath: str, process_type:int, process_param:tuple):
         """
