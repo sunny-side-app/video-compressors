@@ -112,9 +112,11 @@ class Client:
             recv_header_file, recv_media_type, recv_payload = parse_mmp_packet(recv_data)
             # print(f'recv_header_file:{recv_header_file}')
             # print(f'recv_media_type:{recv_media_type}')
+            recv_process_type = recv_header_file['process_type']
 
             # 受信したファイルをClient側で保存
-            with open('processed_file' + recv_media_type, 'wb') as f:
+            processed_filepath = 'processed_file_' + 'process_type=' + str(recv_process_type)+recv_media_type
+            with open(processed_filepath, 'wb') as f:
                 f.write(recv_payload)
 
         return 

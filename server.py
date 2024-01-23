@@ -22,6 +22,8 @@ class Server:
 
         # while True:
         client_socket, client_address = self.socket.accept()
+        # ToDo: IPを取得し、処理中のIPリストになければ登録し存在すればエラーコードを返す
+
         thread_server = threading.Thread(target=self.handle_video_compressor_connection, args=(client_socket, client_address), daemon=True)
         thread_server.start()
         thread_server.join()
@@ -120,7 +122,8 @@ class Server:
             response_body = header_file + processed_media_type_bytes + payload_bytes
             client_socket.sendall(response_header + response_body)
 
-            # ToDo:処理完了後にはサーバに保存されたファイルはストレージから削除
+            # 処理完了後にはサーバに保存されたファイルはストレージから削除
+            self.delete_file(input_filepath=processed_filepath)
 
             print('closing socket')
             self.socket.close()
@@ -240,7 +243,15 @@ class Server:
 
         return output_filepath
 
-    def delete_file(self):
+    def delete_file(self, input_filepath:str):
+        """
+        ファイルを削除する
+        """
+        try:
+            os.remove(input_filepath)
+        except Exception as e:
+            print(f"Error occurred: {e}")
+            return e
         return
 
     def restrict_number_of_processings(self):
