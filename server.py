@@ -17,29 +17,34 @@ class Server:
         self.server_port = 12345
         self.socket.bind((self.server_address, self.server_port))
         self.socket.listen(10)
+        self.client_ips = set()
 
     def start(self):
 
-        # while True:
-        client_socket, client_address = self.socket.accept()
-        # ToDo: IPを取得し、処理中のIPリストになければ登録し存在すればエラーコードを返す
+        while True:
+            # clientの接続受付
+            client_socket, client_address = self.socket.accept()
+            # 処理中のIPアドレスリストに存在しなければ追加
+            self.set_client_ip(client_address[0])
+            print(f"self.client_ips(start):{self.client_ips}")
 
-        thread_server = threading.Thread(target=self.handle_video_compressor_connection, args=(client_socket, client_address), daemon=True)
-        thread_server.start()
-        thread_server.join()
+            # clientからのデータ受信受付はさらにサブスレッドで行う
+            thread_server = threading.Thread(target=self.handle_video_compressor_connection, args=(client_socket, client_address), daemon=True)
+            thread_server.start()
+            thread_server.join()
+            # 処理中のIPアドレスリストから削除
+            self.delete_client_ip(client_address[0])
+            print(f"self.client_ips(end):{self.client_ips}")
+            print('\nwaiting for a tcpclient connection...')
         return
     def handle_video_compressor_connection(self, client_socket, client_address):
-    # Handle the client connection
+        # PACKET_SIZEに応じてデータを分割してrecv()メソッドで全データ受信完了まで繰り返し受信する
+        data = bytearray()
         try:
-            # PACKET_SIZEに応じてデータを分割してrecv()メソッドで全データ受信完了まで繰り返し受信する
-            data = bytearray()
-            # print(f'init_data:{data}')
-            # print(f'init_data len:{len(data)}')
             while True:
-                print('\nwaiting for a tcpclient connection')
+                print('\nwaiting for a tcpclient connection...')
                 print('connection from', client_address)
                 print("client_socket: ", client_socket)
-                # client_socket.settimeout(15)
                 packet = client_socket.recv(Server.PACKET_SIZE)
                 print(f'packet: {packet}')
                 print(f'len(packet): {len(packet)}')
@@ -48,11 +53,9 @@ class Server:
                     data.extend(packet)
                     break
                 data.extend(packet)
-                # self.process_message(data, client_socket)
-                # client_socket.close()
-        except Exception as e:
-                print(f"Error occurred: {e}")
-        else:
+            # except Exception as e:
+            #         print(f"Error occurred: {e}")
+            # else:
             header_file_json, media_type, payload = parse_mmp_packet(data=data)
 
             # バイナリデータをファイルで保存(ペイロードはファイルとして格納される)
@@ -65,68 +68,58 @@ class Server:
             target_filepath = './'+'payload_server' + media_type
 
             if process_type == 1:
-                print('process_type == 1')
                 processed_filepath = self.compress(input_filepath=target_filepath, 
-                 process_type=process_type)
+                    process_type=process_type)
             elif process_type == 2:
-                print('process_type == 2')
                 processed_filepath = self.update_resolution(input_filepath=target_filepath, 
                 process_type=process_type, 
                 process_param=header_file_json['resolution_code'])
 
             elif process_type == 3:
-                print('process_type == 3')
                 processed_filepath = self.update_aspect_ratio(input_filepath=target_filepath, 
                 process_type=process_type, 
                 process_param=header_file_json['aspect_ratio_code'])
 
             elif process_type == 4:
-                print('process_type == 4')
                 processed_filepath = self.distill_audio(input_filepath=target_filepath, 
-                 process_type=process_type)
+                    process_type=process_type)
             elif process_type == 5:
-                print('process_type == 5')
                 processed_filepath = self.cut_out(input_filepath=target_filepath, 
                 process_type=process_type, 
                 process_param=header_file_json['time_range'])
-            else:
-                print('不正な値です')
-            
-            # Client側へのレスポンス(header, bodyの作成、ファイル送信)
+        except Exception as e:
+            error_response = self.create_error_response(e)
+            client_socket.sendall(error_response)
 
-            # header
-            header = data[:67]
-            body = data[67:]
-            header_filesize =  int.from_bytes(header[:16], byteorder='big')
-            header_file = body[:header_filesize]
+        # Client側へのレスポンス(header, bodyの作成、ファイル送信)
+        # header(非エラー発生時)
+        header = data[:67]
+        body = data[67:]
+        header_filesize =  int.from_bytes(header[:16], byteorder='big')
+        header_file = body[:header_filesize]
 
-            processed_filesize = os.path.getsize(processed_filepath)
-            print(f'processed_filesize:{processed_filesize}')
+        processed_filesize = os.path.getsize(processed_filepath)
+        print(f'processed_filesize:{processed_filesize}')
 
-            processed_filepath_tuple = os.path.splitext(processed_filepath)
-            processed_media_type = processed_filepath_tuple[1]
-            processed_media_type_bytes = processed_media_type.encode(encoding='utf-8')
-            processed_media_typesize = len(processed_media_type_bytes)
-            print(f'processed_media_typesize: {processed_media_typesize}')
+        processed_filepath_tuple = os.path.splitext(processed_filepath)
+        processed_media_type = processed_filepath_tuple[1]
+        processed_media_type_bytes = processed_media_type.encode(encoding='utf-8')
+        processed_media_typesize = len(processed_media_type_bytes)
+        print(f'processed_media_typesize: {processed_media_typesize}')
 
-            response_header = custom_bytes_header(jsonfile_size=header_filesize, mediatype_size=processed_media_typesize, payload_size=processed_filesize)
-            print(f'response_header: {response_header}')
+        response_header = custom_bytes_header(jsonfile_size=header_filesize, mediatype_size=processed_media_typesize, payload_size=processed_filesize)
+        print(f'response_header: {response_header}')
 
-            # body
-            # 例外が発生しなければheader fileはClientから受け取ったものをそのまま返す
-            # ToDo：エラーが発生した場合、エラーコード、説明、解決策を含むJSONファイルを送信
-            with open(processed_filepath, 'rb') as target_f:
-                payload_bytes = bytearray(target_f.read())
+        # body
+        with open(processed_filepath, 'rb') as target_f:
+            payload_bytes = bytearray(target_f.read())
 
-            # print(f'payload_bytes:{payload_bytes}')
-            response_body = header_file + processed_media_type_bytes + payload_bytes
-            client_socket.sendall(response_header + response_body)
+        # print(f'payload_bytes:{payload_bytes}')
+        response_body = header_file + processed_media_type_bytes + payload_bytes
+        client_socket.sendall(response_header + response_body)
 
-            # 処理完了後にはサーバに保存されたファイルはストレージから削除
-            self.delete_file(input_filepath=processed_filepath)
-
-            print('closing socket')
-            self.socket.close()
+        # 処理完了後にはサーバに保存されたファイルはストレージから削除
+        self.delete_file(input_filepath=processed_filepath)
 
 
     def compress(self, input_filepath:str, process_type:int):
@@ -134,6 +127,8 @@ class Server:
         動画ファイルを圧縮する(total bitrateを下げる)
         :param input_filepath: the video you want to compress.
         :return: out_put filepath or error
+        ToDO：下記を参考に動画品質と圧縮率のバランスを調整する
+        https://gist.github.com/ESWZY/a420a308d3118f21274a0bc3a6feb1ff
         """
 
         print(f"called compress method")
@@ -234,7 +229,7 @@ class Server:
         elif output_fileextension == 'WEBM': 
             output_filepath = './' + 'output_' + 'process_type=' + str(process_type) + '.webm'
         else:
-            print('不正な値です')
+            print('Incorrect value.')
             
         i = ffmpeg.input(input_filepath)
         ffmpeg.output(i, output_filepath,
@@ -254,9 +249,51 @@ class Server:
             return e
         return
 
-    def restrict_number_of_processings(self):
+    def set_client_ip(self, client_ip:str):
+        if client_ip not in self.client_ips:
+            self.client_ips.add(client_ip)
+        else:
+            raise InvalidIpNumberError("処理中のIPアドレス数が不正です")
         return
 
+    def delete_client_ip(self, client_ip:str):
+        try:
+            self.client_ips.remove(client_ip)
+        except KeyError as e:
+            raise e  
+    
+    def create_error_response(self, error) -> bytearray:
+        """
+        例外オブジェクトを受け取りエラーコード、説明、解決策を含むJSONファイルを準備
+        エラーが1つでも発生したら専用のメソッドでheader,bodyを作る
+        """
+        print(f'error:{error}')
+        header_error_filepath = './header_error_server.json'
+        with open(header_error_filepath, 'w') as f:
+            json.dump({'error_code':400,
+                       'error_message':str(error),
+                       'solution':"データ受信中または動画処理中にエラーが発生したためシステム管理者へ連絡してください\nPlease contact the system administrator because an error occurred during data reception or video processing."
+                       }, f)
+        header_error_filesize = os.path.getsize(header_error_filepath)
+        header_error = custom_bytes_header(jsonfile_size=header_error_filesize, mediatype_size=0, payload_size=0)
+
+        with open(header_error_filepath, 'rb') as header_f:
+            header_error_bytes = bytearray(header_f.read())
+
+        return header_error + header_error_bytes
+
+class ServerError(Exception):
+    """
+    独自の例外クラス
+    """
+    pass
+
+class InvalidIpNumberError(ServerError):
+    """
+    不正な処理中のIPアドレスの数(例:2以上)が指定されたときの例外
+    """
+    def __init__(self, messege: str) -> None:
+        self.messege = messege
 
 def parse_mmp_packet(data: bytearray) -> tuple:
     """
@@ -310,9 +347,7 @@ def main():
     server = Server()
 
     thread_server = threading.Thread(target=server.start, daemon=True)
-
     thread_server.start()
-
     thread_server.join()
 
 if __name__ == '__main__':
