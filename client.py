@@ -24,24 +24,21 @@ class Client:
             # 'aspect_ratio_code': 1,
             # 'time_range': (2,2, GIF)
         }
-        
+        return
 
-        #サーバーに接続
+    def start(self):
         try:
             self.socket.connect((self.server_address, self.server_port))
             print(f"Connected to server at {self.server_address}:{self.server_port}")
         except Exception as e:
-                print(f"Error occurred: {e}")
-        return
-
-    def start(self):
+            print(f"Error occurred: {e}")
+            raise
         print(
             f'server address:{self.server_address}, server port:{self.server_port}')
-
+        # ローカルIPアドレス(プライベートIPアドレス)を取得
         client_address = socket.gethostbyname(socket.gethostname())
         print(f"client_address: {client_address}")
 
-        #self.socket.bind((client_address,0))
         client_port = self.socket.getsockname()[1]
         print(f"client_port: {client_port}")
 
@@ -61,10 +58,10 @@ class Client:
         print(f"self.file_args: {self.file_args}")
 
         # headerの作成
-        header_filepath = input("Type in the file name or the header file(.json file) path: ")
+        header_filepath = input("Type in the the header .json file path(empty file is OK): ")
         with open(header_filepath, 'w') as f:
             json.dump(self.file_args, f)
-        # header_file = self.file_args
+
         header_filesize = os.path.getsize(header_filepath)
         print(f'header_filesize:{header_filesize}')
 
@@ -75,8 +72,6 @@ class Client:
 
         header = custom_bytes_header(jsonfile_size=header_filesize, mediatype_size=media_typesize, payload_size=payload_size)
         print(f'header: {header}')
-        # hex_string = header.hex()
-        # print(f'hex_string:{hex_string}')
         
         # bodyの作成
         with open(header_filepath, 'rb') as header_f, open(target_filepath, 'rb') as target_f:
@@ -88,7 +83,6 @@ class Client:
         # ファイル送信(リクエスト送信)
         body = header_file_bytes + media_type_bytes + payload_bytes
         self.upload_file(header+body)
-
 
         # データ受信
         try:
@@ -105,36 +99,39 @@ class Client:
                 recv_data.extend(packet)
         except Exception as e:
             print(f"Error occurred: {e}")
+            return e
         else:
             print('\n received data: {!r}'.format(recv_data))
 
             # 受信したデータの解析
             recv_header_file, recv_media_type, recv_payload = parse_mmp_packet(recv_data)
-            # print(f'recv_header_file:{recv_header_file}')
-            # print(f'recv_media_type:{recv_media_type}')
-            recv_process_type = recv_header_file['process_type']
-
-            # 受信したファイルをClient側で保存
-            processed_filepath = 'processed_file_' + 'process_type=' + str(recv_process_type)+recv_media_type
-            with open(processed_filepath, 'wb') as f:
-                f.write(recv_payload)
+            try:
+                recv_process_type = recv_header_file['process_type']
+                # 受信したファイルをClient側で保存
+                processed_filepath = 'processed_file_' + 'process_type=' + str(recv_process_type)+recv_media_type
+                with open(processed_filepath, 'wb') as f:
+                    f.write(recv_payload)
+            # When error occurred
+            except KeyError:
+                print(f"error_code:{recv_header_file['error_code']}")
+                print(f"error_message:{recv_header_file['error_message']}")
+                print(f"solution:{recv_header_file['solution']}")
 
         return 
 
     def upload_file(self, data):
         print('uploading to server...')
-        # self.socket.sendfile(file, offset=0, count=None)
         self.socket.sendall(data)
         return
     
     def select_process_type(self):
         while True:
-            process_type = input('行いたい動画メディア処理を選択し番号を入力してください:\n'
-                         '1: 動画ファイルの圧縮\n'
-                         '2: 動画の解像度の変更\n'
-                         '3: 動画のアスペクト比の変更\n'
-                         '4: 動画のオーディオへの変換\n'
-                         '5: 時間範囲でのGIFとWEBMの作成\n')
+            process_type = input('Select the video processing you wish to perform and enter the number:\n'
+                '1: compression of video files\n'
+                '2: updates resolution of video files\n'
+                '3: updates aspect ratio of video files\n'
+                '4: converting video files to audio files\n'
+                '5: creation of GIFs and WEBMs in a time range\n')
             if process_type == "1" :
                 return 1
             elif process_type == "2" :
@@ -146,41 +143,46 @@ class Client:
             elif process_type == "5" :
                 return 5
             else:
-                print('入力を受け取ることができませんでした。')
+                print('Input could not be properly processed, please enter one of 1~5.')
         return
 
     def set_file_args(self, process_type: int):
-        text_for_resolution = '所望の解像度を選択してください:\n \
+        text_for_resolution = 'Please select the desired resolution:\n \
         1: 3840x2160 \n \
         2: 1920x1080 \n \
         3: 1280x720 \n'
-        text_for_aspect_ratio = '所望のアスペクト比を選択してください:\n \
+        text_for_aspect_ratio = 'Please select the desired aspect ratio:\n \
         1: 16:9 \n \
         2: 4:3 \n'
         #ToDo:time_rangeの入力形式
-        text_for_time_range = '何秒時点から何秒間動画を切り取るか、所望の時間範囲(開始時間と動画時間)と出力形式(GIF,WEBM)をカンマ区切りで指定してください\n'
-        text_for_default = '追加の引数は不要です'
+        text_for_time_range = 'Specify the desired time range (start time and movie time) and output format (GIF, WEBM), separated by commas, from what point in time and for how many seconds to clip the movie.(Ex:2,2, GIF)\n'
+        text_for_default = 'No additional arguments are neeeded'
+
         while True:
-            if process_type == 1 :
-                print(text_for_default)
-                break
-            elif process_type == 2 :
-                resolution_code = input(text_for_resolution)
-                self.file_args['resolution_code'] = int(resolution_code)
-                break
-            elif process_type == 3 :
-                aspect_ratio_code = input(text_for_aspect_ratio)
-                self.file_args['aspect_ratio_code'] = int(aspect_ratio_code)
-                break
-            elif process_type == 4 :
-                print(text_for_default)
-                break
-            elif process_type == 5 :
-                time_range = tuple(input(text_for_time_range).split(","))
-                self.file_args['time_range'] = (int(time_range[0]), int(time_range[1]), time_range[2])
-                break
-            else:
-                print('入力を受け取ることができませんでした。')
+            try:
+                if process_type == 1 :
+                    print(text_for_default)
+                    break
+                elif process_type == 2 :
+                    resolution_code = input(text_for_resolution)
+                    self.file_args['resolution_code'] = int(resolution_code)
+                    break
+                elif process_type == 3 :
+                    aspect_ratio_code = input(text_for_aspect_ratio)
+                    self.file_args['aspect_ratio_code'] = int(aspect_ratio_code)
+                    break
+                elif process_type == 4 :
+                    print(text_for_default)
+                    break
+                elif process_type == 5 :
+                    time_range = tuple(input(text_for_time_range).split(","))
+                    self.file_args['time_range'] = (int(time_range[0]), int(time_range[1]), time_range[2])
+                    break
+                else:
+                    print('Input could not be properly processed.')
+            except ValueError as e:
+                print(f'Input could not be properly processed：{e}')
+                # raise
         return
 
 class FileArgs(TypedDict, total=False):
@@ -194,6 +196,7 @@ class FileArgs(TypedDict, total=False):
     time_range: tuple
 
 def main():
+    # while True:
     client = Client()
     client.start()
 
